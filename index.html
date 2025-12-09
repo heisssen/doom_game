@@ -3,29 +3,36 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>DOOM Clone - Three.js</title>
-    <link rel="stylesheet" href="style.css">
+    <title>Doom Clone</title>
+    <style>
+        body { margin: 0; overflow: hidden; background: #000; }
+        #crosshair {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 20px;
+            height: 20px;
+            background: red;
+            transform: translate(-50%, -50%);
+            border-radius: 50%;
+            pointer-events: none;
+        }
+    </style>
+    
+    <!-- FIX: Import Map tells the browser where 'three' is -->
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+            "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+        }
+    }
+    </script>
 </head>
 <body>
-    <!-- UI Overlay -->
-    <div id="blocker">
-        <div id="instructions">
-            <h1>DOOM CLONE</h1>
-            <p style="font-size:36px">
-                Click to Play
-            </p>
-            <p>
-                (W, A, S, D = Move, MOUSE = Look, CLICK = Shoot)
-            </p>
-        </div>
-    </div>
-
-    <!-- HUD -->
-    <div id="crosshair">+</div>
-    <div id="weapon"></div>
-
-    <!-- Game Script -->
-    <!-- We use type="module" to allow imports from CDNs -->
-    <script type="module" src="game.js"></script>
+    <div id="crosshair"></div>
+    
+    <!-- Load your game script as a module -->
+    <script type="module" src="./game.js"></script>
 </body>
 </html>
