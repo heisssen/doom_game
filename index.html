@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DOOM Clone - Three.js</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <!-- UI Overlay -->
+    <div id="blocker">
+        <div id="instructions">
+            <h1>DOOM CLONE</h1>
+            <p style="font-size:36px">
+                Click to Play
+            </p>
+            <p>
+                (W, A, S, D = Move, MOUSE = Look, CLICK = Shoot)
+            </p>
+        </div>
+    </div>
+
+    <!-- HUD -->
+    <div id="crosshair">+</div>
+    <div id="weapon"></div>
+
+    <!-- Game Script -->
+    <!-- We use type="module" to allow imports from CDNs -->
+    <script type="module" src="game.js"></script>
+</body>
+</html>

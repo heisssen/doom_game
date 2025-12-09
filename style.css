@@ -1,0 +1,59 @@
+body {
+    margin: 0;
+    overflow: hidden;
+    background-color: #000;
+    font-family: 'Courier New', Courier, monospace;
+    user-select: none;
+}
+
+#blocker {
+    position: absolute;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0,0,0,0.8);
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    z-index: 10;
+    color: #ff0000;
+    text-shadow: 2px 2px #550000;
+}
+
+#instructions {
+    text-align: center;
+    cursor: pointer;
+}
+
+#crosshair {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    color: #0f0;
+    font-size: 24px;
+    font-weight: bold;
+    pointer-events: none;
+    z-index: 5;
+}
+
+/* Simple CSS representation of a DOOM weapon */
+#weapon {
+    position: absolute;
+    bottom: 0;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 200px;
+    height: 150px;
+    background: linear-gradient(to bottom, #555, #222);
+    border-top-left-radius: 20px;
+    border-top-right-radius: 20px;
+    z-index: 5;
+    pointer-events: none;
+    /* Simulate gun recoil animation */
+    transition: transform 0.1s;
+}
+
+#weapon.firing {
+    transform: translateX(-50%) translateY(20px);
+}
