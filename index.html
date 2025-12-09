@@ -1,40 +1,399 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="uk">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>DOOM Clone</title>
-    <link rel="stylesheet" href="style.css">
-    
-    <!-- FIX: Import Map tells the browser where 'three' is -->
-    <script type="importmap">
-    {
-        "imports": {
-            "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
-            "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+    <title>DOOM: JS REDEMPTION</title>
+    <style>
+        body { margin: 0; overflow: hidden; background: #000; font-family: 'Courier New', monospace; }
+        
+        /* Приціл */
+        #crosshair {
+            position: absolute;
+            top: 50%; left: 50%;
+            width: 20px; height: 20px;
+            background: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 20 20"><circle cx="10" cy="10" r="2" fill="%230f0"/></svg>') no-repeat center;
+            transform: translate(-50%, -50%);
+            pointer-events: none;
+            z-index: 2;
+            filter: drop-shadow(0 0 5px #0f0);
         }
-    }
-    </script>
+
+        /* Ефекти екрану (віньєтка + шум) */
+        #overlay {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            pointer-events: none;
+            background: radial-gradient(circle, rgba(0,0,0,0) 50%, rgba(0,0,0,0.8) 100%);
+            box-shadow: inset 0 0 100px rgba(0,0,0,0.9);
+            z-index: 1;
+        }
+
+        /* Інтерфейс */
+        #ui {
+            position: absolute;
+            bottom: 20px; left: 20px;
+            color: #d00;
+            font-size: 30px;
+            font-weight: bold;
+            text-shadow: 0 0 10px #f00;
+            z-index: 2;
+        }
+
+        #blocker {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.8);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            flex-direction: column;
+            color: #fff;
+            z-index: 10;
+            cursor: pointer;
+        }
+        h1 { margin: 0; font-size: 60px; color: #d00; text-shadow: 0 0 20px red; }
+        p { font-size: 20px; color: #aaa; }
+    </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 </head>
 <body>
-    <!-- UI Overlay (Required for the game to start) -->
-    <div id="blocker">
-        <div id="instructions">
-            <h1>DOOM CLONE</h1>
-            <p style="font-size:36px">
-                Click to Play
-            </p>
-            <p>
-                (W, A, S, D = Move, MOUSE = Look, CLICK = Shoot)
-            </p>
-        </div>
-    </div>
 
-    <!-- HUD -->
-    <div id="crosshair">+</div>
-    <div id="weapon"></div>
+<div id="crosshair"></div>
+<div id="overlay"></div>
+<div id="ui">HP: 100 <span style="margin-left: 20px">DEMONS: <span id="demon-count">0</span></span></div>
 
-    <!-- Game Script -->
-    <script type="module" src="game.js"></script>
+<div id="blocker">
+    <h1>HELL ENGINE V2</h1>
+    <p>КЛІКНИ ЩОБ ПОЧАТИ</p>
+    <p>(WASD - Рух, Миша - Огляд, ЛКМ - Вогонь)</p>
+</div>
+
+<script>
+    // --- НАЛАШТУВАННЯ ---
+    let camera, scene, renderer;
+    let controls;
+    let moveForward = false, moveBackward = false, moveLeft = false, moveRight = false;
+    let velocity = new THREE.Vector3();
+    let direction = new THREE.Vector3();
+    let prevTime = performance.now();
+    
+    // Ігрові об'єкти
+    let weaponGroup;
+    let enemies = [];
+    let bullets = [];
+    let walls = [];
+    
+    // Стан гри
+    let isLocked = false;
+    let canShoot = true;
+    let score = 0;
+
+    init();
+    animate();
+
+    function init() {
+        // 1. Сцена і Камера
+        scene = new THREE.Scene();
+        scene.fog = new THREE.FogExp2(0x000000, 0.08); // Густий чорний туман
+
+        camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+
+        // 2. Рендерер
+        renderer = new THREE.WebGLRenderer({ antialias: false }); // Pixel look
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(window.devicePixelRatio > 1 ? 1 : 1); // Продуктивність
+        document.body.appendChild(renderer.domElement);
+
+        // 3. Контролер (Pointer Lock - як у шутерах)
+        const blocker = document.getElementById('blocker');
+        document.body.addEventListener('click', function () {
+            document.body.requestPointerLock();
+        });
+
+        document.addEventListener('pointerlockchange', function () {
+            if (document.pointerLockElement === document.body) {
+                isLocked = true;
+                blocker.style.display = 'none';
+            } else {
+                isLocked = false;
+                blocker.style.display = 'flex';
+            }
+        });
+
+        // 4. Генерація текстур (Процедурна генерація)
+        const wallTexture = createTexture('#554433', '#221100'); // Брудні стіни
+        const floorTexture = createTexture('#222222', '#111111'); // Темна підлога
+        
+        // Матеріали
+        const wallMat = new THREE.MeshStandardMaterial({ map: wallTexture, roughness: 0.8 });
+        const floorMat = new THREE.MeshStandardMaterial({ map: floorTexture, roughness: 0.8 });
+
+        // 5. Побудова рівня (Сітка)
+        // 1 = стіна, 0 = пусто, 2 = спавн ворога
+        const map = [
+            [1,1,1,1,1,1,1,1,1,1,1,1],
+            [1,0,0,0,0,1,0,2,0,0,0,1],
+            [1,0,1,1,0,1,0,1,1,1,0,1],
+            [1,0,1,0,0,0,0,0,0,1,0,1],
+            [1,0,1,0,1,0,1,0,0,0,0,1],
+            [1,0,0,0,1,2,1,0,1,0,2,1],
+            [1,0,1,1,1,0,0,0,1,0,0,1],
+            [1,2,0,0,0,0,1,0,1,1,0,1],
+            [1,1,1,1,1,1,1,1,1,1,1,1]
+        ];
+
+        const BOX_SIZE = 5;
+        
+        for(let z=0; z<map.length; z++) {
+            for(let x=0; x<map[z].length; x++) {
+                if(map[z][x] === 1) {
+                    const geo = new THREE.BoxGeometry(BOX_SIZE, BOX_SIZE * 2, BOX_SIZE);
+                    const mesh = new THREE.Mesh(geo, wallMat);
+                    mesh.position.set(x * BOX_SIZE, BOX_SIZE, z * BOX_SIZE);
+                    scene.add(mesh);
+                    walls.push(mesh); // Для колізій
+                } else {
+                    // Підлога
+                    const geo = new THREE.PlaneGeometry(BOX_SIZE, BOX_SIZE);
+                    const mesh = new THREE.Mesh(geo, floorMat);
+                    mesh.rotation.x = -Math.PI / 2;
+                    mesh.position.set(x * BOX_SIZE, 0, z * BOX_SIZE);
+                    scene.add(mesh);
+                    
+                    // Стелі трохи
+                    const ceil = mesh.clone();
+                    ceil.position.y = BOX_SIZE * 2;
+                    ceil.rotation.x = Math.PI / 2;
+                    scene.add(ceil);
+
+                    if(map[z][x] === 2) {
+                        spawnEnemy(x * BOX_SIZE, 2, z * BOX_SIZE);
+                    }
+                }
+            }
+        }
+
+        // 6. Освітлення
+        const ambientLight = new THREE.AmbientLight(0x404040, 0.5); 
+        scene.add(ambientLight);
+
+        // Ліхтарик гравця
+        const flashLight = new THREE.PointLight(0xffaa00, 1, 20);
+        camera.add(flashLight);
+        scene.add(camera); // Додаємо камеру в сцену, щоб світло рухалось
+
+        // 7. Створення ЗБРОЇ (Воксельний стиль)
+        createWeapon();
+
+        // 8. Події клавіатури
+        const onKeyDown = function (event) {
+            switch (event.code) {
+                case 'ArrowUp': case 'KeyW': moveForward = true; break;
+                case 'ArrowLeft': case 'KeyA': moveLeft = true; break;
+                case 'ArrowDown': case 'KeyS': moveBackward = true; break;
+                case 'ArrowRight': case 'KeyD': moveRight = true; break;
+            }
+        };
+        const onKeyUp = function (event) {
+            switch (event.code) {
+                case 'ArrowUp': case 'KeyW': moveForward = false; break;
+                case 'ArrowLeft': case 'KeyA': moveLeft = false; break;
+                case 'ArrowDown': case 'KeyS': moveBackward = false; break;
+                case 'ArrowRight': case 'KeyD': moveRight = false; break;
+            }
+        };
+        document.addEventListener('keydown', onKeyDown);
+        document.addEventListener('keyup', onKeyUp);
+        document.addEventListener('mousedown', shoot);
+        
+        // Початкова позиція
+        camera.position.set(5 * 2.5, 2, 5 * 2.5);
+    }
+
+    // --- ФУНКЦІЇ ГРИ ---
+
+    function createTexture(col1, col2) {
+        const cvs = document.createElement('canvas');
+        cvs.width = 64; cvs.height = 64;
+        const ctx = cvs.getContext('2d');
+        ctx.fillStyle = col1; ctx.fillRect(0,0,64,64);
+        for(let i=0; i<100; i++) {
+            ctx.fillStyle = col2;
+            ctx.fillRect(Math.random()*64, Math.random()*64, 2, 2);
+        }
+        const tex = new THREE.CanvasTexture(cvs);
+        tex.magFilter = THREE.NearestFilter; // Піксельний стиль
+        return tex;
+    }
+
+    function createDemonTexture() {
+        const cvs = document.createElement('canvas');
+        cvs.width = 64; cvs.height = 64;
+        const ctx = cvs.getContext('2d');
+        // Обличчя демона
+        ctx.fillStyle = 'transparent'; ctx.clearRect(0,0,64,64);
+        ctx.fillStyle = '#aa0000'; // Червона голова
+        ctx.beginPath(); ctx.arc(32, 32, 25, 0, Math.PI*2); ctx.fill();
+        ctx.fillStyle = '#FFFF00'; // Очі
+        ctx.fillRect(20, 20, 8, 8); ctx.fillRect(36, 20, 8, 8);
+        ctx.fillStyle = '#000'; // Рот
+        ctx.fillRect(22, 40, 20, 10);
+        ctx.fillStyle = '#fff'; // Зуби
+        ctx.fillRect(24, 40, 4, 4); ctx.fillRect(30, 40, 4, 4); ctx.fillRect(36, 40, 4, 4);
+        
+        const tex = new THREE.CanvasTexture(cvs);
+        tex.magFilter = THREE.NearestFilter;
+        return tex;
+    }
+
+    function createWeapon() {
+        weaponGroup = new THREE.Group();
+        
+        // Основа
+        const bodyGeo = new THREE.BoxGeometry(0.5, 0.5, 1.5);
+        const bodyMat = new THREE.MeshStandardMaterial({ color: 0x333333 });
+        const body = new THREE.Mesh(bodyGeo, bodyMat);
+        body.position.set(0, 0, 0);
+        
+        // Ствол
+        const barrelGeo = new THREE.BoxGeometry(0.2, 0.2, 0.5);
+        const barrelMat = new THREE.MeshStandardMaterial({ color: 0x111111 });
+        const barrel = new THREE.Mesh(barrelGeo, barrelMat);
+        barrel.position.set(0, 0.2, -0.8);
+
+        // Енергетична котушка
+        const coilGeo = new THREE.BoxGeometry(0.3, 0.1, 0.8);
+        const coilMat = new THREE.MeshBasicMaterial({ color: 0x00ff00 }); // Світиться
+        const coil = new THREE.Mesh(coilGeo, coilMat);
+        coil.position.set(0, 0.3, -0.2);
+
+        weaponGroup.add(body);
+        weaponGroup.add(barrel);
+        weaponGroup.add(coil);
+
+        // Прикріпити зброю до камери
+        weaponGroup.position.set(0.5, -0.5, -1);
+        weaponGroup.rotation.y = -0.1;
+        camera.add(weaponGroup);
+    }
+
+    function spawnEnemy(x, y, z) {
+        const map = new THREE.SpriteMaterial({ map: createDemonTexture() });
+        const sprite = new THREE.Sprite(map);
+        sprite.position.set(x, y, z);
+        sprite.scale.set(3, 3, 1); // Розмір спрайта
+        
+        // Додаємо властивості "мозку"
+        sprite.userData = { 
+            health: 3, 
+            speed: 0.03 + Math.random() * 0.02,
+            id: Math.random()
+        };
+        
+        scene.add(sprite);
+        enemies.push(sprite);
+        updateEnemyCount();
+    }
+
+    function shoot() {
+        if (!isLocked || !canShoot) return;
+        
+        // Анімація віддачі
+        weaponGroup.position.z += 0.4;
+        setTimeout(() => { weaponGroup.position.z -= 0.4; }, 100);
+
+        // Звук пострілу (візуальний - спалах)
+        const flash = new THREE.PointLight(0x00ff00, 5, 5);
+        flash.position.set(0, 0, -2);
+        camera.add(flash);
+        setTimeout(() => camera.remove(flash), 50);
+
+        // Raycasting пострілу
+        const raycaster = new THREE.Raycaster();
+        raycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
+        
+        const intersects = raycaster.intersectObjects(enemies);
+        
+        if (intersects.length > 0) {
+            const hit = intersects[0].object;
+            hit.userData.health -= 1;
+            hit.material.color.setHex(0xff0000); // Блимає червоним
+            setTimeout(() => hit.material.color.setHex(0xffffff), 100);
+
+            if (hit.userData.health <= 0) {
+                scene.remove(hit);
+                enemies = enemies.filter(e => e !== hit);
+                updateEnemyCount();
+                // Спавн нового демона десь далеко
+                spawnEnemy((Math.random()*40), 2, (Math.random()*40));
+            }
+        }
+    }
+
+    function updateEnemyCount() {
+        document.getElementById('demon-count').innerText = enemies.length;
+    }
+
+    function animate() {
+        requestAnimationFrame(animate);
+
+        const time = performance.now();
+        
+        if (isLocked) {
+            const delta = (time - prevTime) / 1000;
+
+            // --- ФІЗИКА РУХУ ГРАВЦЯ ---
+            velocity.x -= velocity.x * 10.0 * delta;
+            velocity.z -= velocity.z * 10.0 * delta;
+
+            direction.z = Number(moveForward) - Number(moveBackward);
+            direction.x = Number(moveRight) - Number(moveLeft);
+            direction.normalize();
+
+            if (moveForward || moveBackward) velocity.z -= direction.z * 50.0 * delta;
+            if (moveLeft || moveRight) velocity.x -= direction.x * 50.0 * delta;
+
+            camera.translateX(-velocity.x * delta);
+            camera.translateZ(-velocity.z * delta);
+            
+            // Bobbing зброї (щоб виглядало, що йдеш)
+            const speed = Math.sqrt(velocity.x**2 + velocity.z**2);
+            weaponGroup.position.y = -0.5 + Math.sin(time * 0.015) * speed * 0.02;
+            weaponGroup.position.x = 0.5 + Math.cos(time * 0.015) * speed * 0.02;
+
+            // --- ШТУЧНИЙ ІНТЕЛЕКТ ВОРОГІВ ---
+            enemies.forEach(enemy => {
+                // Ворог завжди дивиться на гравця (ефект спрайта)
+                // Але в Three.js Sprite це робить автоматично!
+                
+                // Рух до гравця
+                const dist = enemy.position.distanceTo(camera.position);
+                
+                if (dist > 1.5) { // Не наближатись впритул
+                    const dir = new THREE.Vector3();
+                    dir.subVectors(camera.position, enemy.position).normalize();
+                    
+                    // Проста перевірка колізій (щоб не проходили крізь стіни)
+                    // (Тут спрощено: вони летять напряму. Для повного AI треба A*)
+                    enemy.position.addScaledVector(dir, enemy.userData.speed);
+                } else {
+                    // Атака (трясеться)
+                     enemy.position.y = 2 + Math.random() * 0.2;
+                }
+            });
+        }
+        prevTime = time;
+
+        renderer.render(scene, camera);
+    }
+    
+    // Resize handler
+    window.addEventListener('resize', () => {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+
+</script>
 </body>
 </html>
