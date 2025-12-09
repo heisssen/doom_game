@@ -3,21 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Doom Clone</title>
-    <style>
-        body { margin: 0; overflow: hidden; background: #000; }
-        #crosshair {
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            width: 20px;
-            height: 20px;
-            background: red;
-            transform: translate(-50%, -50%);
-            border-radius: 50%;
-            pointer-events: none;
-        }
-    </style>
+    <title>DOOM Clone</title>
+    <link rel="stylesheet" href="style.css">
     
     <!-- FIX: Import Map tells the browser where 'three' is -->
     <script type="importmap">
@@ -30,9 +17,24 @@
     </script>
 </head>
 <body>
-    <div id="crosshair"></div>
-    
-    <!-- Load your game script as a module -->
-    <script type="module" src="./game.js"></script>
+    <!-- UI Overlay (Required for the game to start) -->
+    <div id="blocker">
+        <div id="instructions">
+            <h1>DOOM CLONE</h1>
+            <p style="font-size:36px">
+                Click to Play
+            </p>
+            <p>
+                (W, A, S, D = Move, MOUSE = Look, CLICK = Shoot)
+            </p>
+        </div>
+    </div>
+
+    <!-- HUD -->
+    <div id="crosshair">+</div>
+    <div id="weapon"></div>
+
+    <!-- Game Script -->
+    <script type="module" src="game.js"></script>
 </body>
 </html>
