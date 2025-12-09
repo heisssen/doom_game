@@ -1,128 +1,195 @@
-// Now this works because of the importmap in HTML
-import * as THREE from 'three';
-import { PointerLockControls } from 'three/addons/controls/PointerLockControls.js';
+import * as THREE from 'https://unpkg.com/three@0.160.0/build/three.module.js';
+import { PointerLockControls } from 'https://unpkg.com/three@0.160.0/examples/jsm/controls/PointerLockControls.js';
 
-// --- INIT ---
-const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x333333); // Dark gray "Doom-like" fog
-scene.fog = new THREE.Fog(0x333333, 0, 50);
+let camera, scene, renderer, controls;
+const objects = [];
+let raycaster;
 
-const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-const renderer = new THREE.WebGLRenderer();
-renderer.setSize(window.innerWidth, window.innerHeight);
-document.body.appendChild(renderer.domElement);
-
-// --- LIGHTING ---
-const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
-scene.add(ambientLight);
-const pointLight = new THREE.PointLight(0xffffff, 0.5);
-pointLight.position.set(5, 10, 5);
-scene.add(pointLight);
-
-// --- LEVEL (Simple Floor & Walls) ---
-// Floor
-const floorGeo = new THREE.PlaneGeometry(100, 100);
-const floorMat = new THREE.MeshStandardMaterial({ color: 0x222222 });
-const floor = new THREE.Mesh(floorGeo, floorMat);
-floor.rotation.x = -Math.PI / 2;
-scene.add(floor);
-
-// Random Cubes (Obstacles)
-const boxGeo = new THREE.BoxGeometry(2, 4, 2);
-const boxMat = new THREE.MeshStandardMaterial({ color: 0x880000 }); // Doom Red
-
-for(let i=0; i<20; i++) {
-    const box = new THREE.Mesh(boxGeo, boxMat);
-    box.position.x = (Math.random() - 0.5) * 50;
-    box.position.z = (Math.random() - 0.5) * 50;
-    box.position.y = 2; // Sit on floor
-    scene.add(box);
-}
-
-// --- CONTROLS (FPS) ---
-const controls = new PointerLockControls(camera, document.body);
-
-// Click to capture mouse
-document.addEventListener('click', () => {
-    controls.lock();
-});
-
-scene.add(controls.getObject());
-camera.position.y = 1.6; // Eye height
-
-// --- MOVEMENT LOGIC ---
-const velocity = new THREE.Vector3();
-const direction = new THREE.Vector3();
 let moveForward = false;
 let moveBackward = false;
 let moveLeft = false;
 let moveRight = false;
-const prevTime = performance.now();
+let canJump = false;
 
-const onKeyDown = function (event) {
-    switch (event.code) {
-        case 'ArrowUp':
-        case 'KeyW': moveForward = true; break;
-        case 'ArrowLeft':
-        case 'KeyA': moveLeft = true; break;
-        case 'ArrowDown':
-        case 'KeyS': moveBackward = true; break;
-        case 'ArrowRight':
-        case 'KeyD': moveRight = true; break;
+let prevTime = performance.now();
+const velocity = new THREE.Vector3();
+const direction = new THREE.Vector3();
+
+let weaponElement; // Define globally, assign later
+
+// 1. WAIT FOR DOM TO LOAD
+document.addEventListener('DOMContentLoaded', () => {
+    // Assign DOM elements now that they definitely exist
+    weaponElement = document.getElementById('weapon');
+    
+    // Check if critical elements exist before starting
+    if (!document.getElementById('instructions')) {
+        console.error("Error: Could not find element with id 'instructions' in your HTML.");
+        return;
     }
-};
 
-const onKeyUp = function (event) {
-    switch (event.code) {
-        case 'ArrowUp':
-        case 'KeyW': moveForward = false; break;
-        case 'ArrowLeft':
-        case 'KeyA': moveLeft = false; break;
-        case 'ArrowDown':
-        case 'KeyS': moveBackward = false; break;
-        case 'ArrowRight':
-        case 'KeyD': moveRight = false; break;
+    init();
+    animate();
+});
+
+function init() {
+    scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x111111);
+    scene.fog = new THREE.Fog(0x111111, 0, 750);
+
+    camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 1, 1000);
+    camera.position.y = 10;
+
+    const light = new THREE.HemisphereLight(0xeeeeff, 0x777788, 0.75);
+    light.position.set(0.5, 1, 0.75);
+    scene.add(light);
+
+    controls = new PointerLockControls(camera, document.body);
+
+    // Get elements safely
+    const blocker = document.getElementById('blocker');
+    const instructions = document.getElementById('instructions');
+
+    instructions.addEventListener('click', function () {
+        controls.lock();
+    });
+
+    controls.addEventListener('lock', function () {
+        instructions.style.display = 'none';
+        blocker.style.display = 'none';
+    });
+
+    controls.addEventListener('unlock', function () {
+        blocker.style.display = 'flex';
+        instructions.style.display = 'block';
+    });
+
+    scene.add(controls.getObject());
+
+    const onKeyDown = function (event) {
+        switch (event.code) {
+            case 'ArrowUp':
+            case 'KeyW': moveForward = true; break;
+            case 'ArrowLeft':
+            case 'KeyA': moveLeft = true; break;
+            case 'ArrowDown':
+            case 'KeyS': moveBackward = true; break;
+            case 'ArrowRight':
+            case 'KeyD': moveRight = true; break;
+        }
+    };
+
+    const onKeyUp = function (event) {
+        switch (event.code) {
+            case 'ArrowUp':
+            case 'KeyW': moveForward = false; break;
+            case 'ArrowLeft':
+            case 'KeyA': moveLeft = false; break;
+            case 'ArrowDown':
+            case 'KeyS': moveBackward = false; break;
+            case 'ArrowRight':
+            case 'KeyD': moveRight = false; break;
+        }
+    };
+
+    const onMouseDown = function () {
+        if (controls.isLocked) {
+            shoot();
+        }
+    };
+
+    document.addEventListener('keydown', onKeyDown);
+    document.addEventListener('keyup', onKeyUp);
+    document.addEventListener('mousedown', onMouseDown);
+
+    raycaster = new THREE.Raycaster(new THREE.Vector3(), new THREE.Vector3(0, - 1, 0), 0, 10);
+
+    // Floor
+    const floorGeometry = new THREE.PlaneGeometry(2000, 2000, 100, 100);
+    const floorMaterial = new THREE.MeshLambertMaterial({ color: 0x333333 });
+    floorGeometry.rotateX(- Math.PI / 2);
+    const floor = new THREE.Mesh(floorGeometry, floorMaterial);
+    scene.add(floor);
+
+    // Walls
+    const boxGeometry = new THREE.BoxGeometry(20, 40, 20);
+    const boxMaterial = new THREE.MeshStandardMaterial({ 
+        color: 0x884400, 
+        roughness: 0.7,
+        metalness: 0.2
+    }); 
+
+    for (let i = 0; i < 200; i++) {
+        const box = new THREE.Mesh(boxGeometry, boxMaterial);
+        box.position.x = Math.floor(Math.random() * 20 - 10) * 40;
+        box.position.y = 20;
+        box.position.z = Math.floor(Math.random() * 20 - 10) * 40;
+
+        if (Math.abs(box.position.x) < 50 && Math.abs(box.position.z) < 50) continue;
+
+        scene.add(box);
+        objects.push(box);
     }
-};
 
-document.addEventListener('keydown', onKeyDown);
-document.addEventListener('keyup', onKeyUp);
+    renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setPixelRatio(window.devicePixelRatio);
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    document.body.appendChild(renderer.domElement);
 
-// --- ANIMATION LOOP ---
-let lastTime = performance.now();
+    window.addEventListener('resize', onWindowResize);
+}
+
+function onWindowResize() {
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+}
+
+function shoot() {
+    if (weaponElement) {
+        weaponElement.classList.add('firing');
+        setTimeout(() => {
+            weaponElement.classList.remove('firing');
+        }, 100);
+    }
+
+    const shootRaycaster = new THREE.Raycaster();
+    shootRaycaster.setFromCamera( new THREE.Vector2(0, 0), camera );
+
+    const intersects = shootRaycaster.intersectObjects(objects);
+
+    if (intersects.length > 0) {
+        intersects[0].object.material = intersects[0].object.material.clone();
+        intersects[0].object.material.color.set(0xff0000);
+        intersects[0].object.material.emissive.set(0xaa0000);
+    }
+}
 
 function animate() {
     requestAnimationFrame(animate);
 
     const time = performance.now();
-    const delta = (time - lastTime) / 1000;
-    lastTime = time;
 
-    if (controls.isLocked) {
-        // Friction
+    if (controls && controls.isLocked === true) {
+        const delta = (time - prevTime) / 1000;
+
         velocity.x -= velocity.x * 10.0 * delta;
         velocity.z -= velocity.z * 10.0 * delta;
 
-        // Direction
         direction.z = Number(moveForward) - Number(moveBackward);
         direction.x = Number(moveRight) - Number(moveLeft);
-        direction.normalize(); // Ensure consistent speed in all directions
+        direction.normalize();
 
-        if (moveForward || moveBackward) velocity.z -= direction.z * 100.0 * delta; // Speed
-        if (moveLeft || moveRight) velocity.x -= direction.x * 100.0 * delta;
+        if (moveForward || moveBackward) velocity.z -= direction.z * 400.0 * delta;
+        if (moveLeft || moveRight) velocity.x -= direction.x * 400.0 * delta;
 
         controls.moveRight(-velocity.x * delta);
         controls.moveForward(-velocity.z * delta);
     }
 
-    renderer.render(scene, camera);
+    prevTime = time;
+
+    if (renderer && scene && camera) {
+        renderer.render(scene, camera);
+    }
 }
-
-animate();
-
-// Handle Window Resize
-window.addEventListener('resize', () => {
-    camera.aspect = window.innerWidth / window.innerHeight;
-    camera.updateProjectionMatrix();
-    renderer.setSize(window.innerWidth, window.innerHeight);
-});
